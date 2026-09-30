@@ -1,0 +1,107 @@
+具体任务
+用Smart_K3IN1_Firmware -servo-V1.3-20210713这个STM32F302固件的外设算法和gd303_HALL_FOC电机驱动，结合出一个GD32F303固件，适配到gd303_HALL_FOC电机驱动的硬件上。gd303_HALL_FOC电机驱动确认可运行，不要改动。原Smart_K3IN1_Firmware -servo-V1.3-20210713这个STM32F302固件的挡板功能已经取消了。Smart_K3IN1_Firmware -servo-V1.3-20210713的硬件、gd303_HALL_FOC硬件可以从代码中获得。
+
+信号别名表
+P1就是S1
+P2就是S2
+L1就是S4
+新代码尽量用P1/P2/L1代替S1/S2/S4
+
+gd303_HALL_FOC GD32F303CBT6 硬件 · 固件开发规格书
+1. 硬件平台
+MCU：GD32F303CBT6（LQFP48，Cortex-M4F，120MHz，128KB Flash）
+无外部晶振（OSCIN/OSCOUT 悬空）→ 必须 IRC8M→PLL 配置系统时钟
+BOOT0=GND（Flash 启动）；NRST 仅 10nF 电容，无按键
+调试口：SWD（H2 排针：1=SWDIO/PA13，2=3.3V，3=SWCLK/PA14，4=GND）
+全板无任何串行通信外设（无 UART/CAN/USB/I2C/SPI 引脚使用），S1 S2 S4定义和Smart_K3IN1一样。
+电源（纯硬件，固件不涉及）：外部 ~100V DC 输入，板载产生 24V（三相逆变）、12V（执行器）、5V（传感器）、3.3V×2（MCU3V3 数字 / OPA3V3 模拟）
+
+时钟、调试口配置gd303_HALL_FOC已经完成了。
+
+2. MCU 引脚总表（网表逐一核实）
+脚 引脚 板上连接 固件功能
+1	VBAT	MCU3V3	—
+2	PC13	R46(51Ω)→Q9(AO3400A)栅极，Q9拉低S4线	输出：S4应答/拉低
+3/4	PC14/PC15	悬空	空闲（建议模拟输入模式）
+5/6	OSCIN/OSCOUT	悬空	无晶振
+7	NRST	C45 10nF	—
+8/9	VSSA/VDDA	GND / MCU3V3	—
+10	PA0	U20(INA181A1)输出	ADC_IN0：U相电流
+11	PA1	U5 输出	ADC_IN1：V相电流
+12	PA2	U14 输出	ADC_IN2：W相电流
+13	PA3	CSREF（1.65V基准）	ADC_IN3：零点校准
+14	PA4	R31→Q8→CON1.5	输出：步进线圈A（高=通电）
+15	PA5	R30→Q7→CON1.4	步进线圈B
+16	PA6	R29→Q6→CON1.3	步进线圈C
+17	PA7	R28→Q5→CON1.2	步进线圈D
+18	PB0	R81+C59←U4输出	ADC_IN8：步进回路电流
+19	PB1	R71+C31←U15输出	ADC_IN9：播料回路电流
+20	PB2	R52(1k)+C33←L1(U19.6)	输入（5VT）
+21	PB10	R67+C46←P1(U19.5)	输入（5VT）
+22	PB11	R62+C37←P2(U19.3)	输入（5VT）
+23/24	VSS_1/VDD_1	GND/MCU3V3	—
+25	PB12	LED4（5V经1k）	输出：绿色LED，低电平点亮
+26	PB13	U12.12（WL）	TIMER0_CH0_ON：W相下桥
+27	PB14	U12.11（VL）	TIMER0_CH1_ON：V相下桥
+28	PB15	U12.10（UL）	TIMER0_CH2_ON：U相下桥
+29	PA8	U12.9（WH）	TIMER0_CH0：W相上桥
+30	PA9	U12.8（VH）	TIMER0_CH1：V相上桥
+31	PA10	U12.7（UH）	TIMER0_CH2：U相上桥
+32	PA11	R79+C57←CN4.4	输入（5VT）：STEP_M_OFF，霍尔，低电平表示驱动播料管的步进电机关闭到位。
+33	PA12	R80+C58←CN4.3	输入（5VT）：STEP_M_ON，霍尔，低电平表示驱动播料管的步进电机开启到位。
+34	PA13	H2.1	SWDIO
+35/36	VSS_2/VDD_2	GND/MCU3V3	—
+37	PA14	H2.3	SWCLK
+38	PA15	R75+C51←CN2.3	输入（5VT）：WULIAO物料检测，输出电平信号，不是输出38K。要求和Smart_K3IN1一样，需要延时动作。
+39	PB3	R84+C61←U7.5	输入（5VT）：播料霍尔反馈转速，里面的方波频率就是转速。
+40	PB4	R73→Q11→CN2.1	输出：38KHZ_OUT，输出固定50%占空比
+41	PB5	R56→Q10→U7.2	输出：BOLIAO-PWM，播料有刷PWM电机输出PWM控制MOS栅极然后控制有刷电机，这个PWM占空比越高，有刷电机转速越快，转速通过PB3播料霍尔反馈，PI闭环控制
+42	PB6	R22+C38←CN1.7（7.5k上拉5V）	输入（5VT）：HALL_U，TIMER3_CH0
+43	PB7	R23+C40←CN1.6	输入（5VT）：HALL_V，TIMER3_CH1
+44	BOOT0	GND	—
+45	PB8	R21+C41←CN1.5	输入（5VT）：HALL_W，TIMER3_CH2
+46	PB9	LED3（5V经1k）	输出：红色LED，低电平点亮
+47/48	VSS_3/VDD_3	GND/MCU3V3	—
+
+TIMER0是FOC驱动，
+
+3. 三相电机子系统
+gd303_HALL_FOC已经测好，内部控制算法不要改动，只需要由外围电路控制转不转，控制逻辑和Smart_K3IN1保持一样。
+gd303_HALL_FOC代码可能和注释不符，以代码为准修改注释。
+
+4. 其他子系统
+子系统 引脚与电路 要点
+步进电机（CON1，XH2.54-5P）	PA4/5/6/7→51Ω→Q5~Q8(AO3400A)低侧；公共端12V（经R48 25mΩ）；D10~D13续流；栅极7.5k下拉	单极性4相：高电平=线圈通电；全步/半步序列；复位时硬件自动关断；电流监测用PB0，放大器增益20倍，限流1A。八拍驱动与 K3IN1 一致；
+
+拨料电机（U7，2.0mm-5P）	PB5（PWM）→51Ω→Q10→U7.2；D18续流；12V经R70 25mΩ；霍尔U7.5→PB3播料霍尔反馈转速	PB5可重映射TIMER2_CH1做硬件调占空比PWM；电流监测PB1，放大器增益20倍。拨料电机参数和Smart_K3IN1保持一样。PWM输出频率改为38KHZ。
+
+物料检测（CN2，1.25mm-6P）	PB4（PWM）→51Ω→Q11→CN2.1（开漏）；CN2.3→PA15	PB4可重映射TIMER2_CH0硬件输出搞固定50%占空比38kHz（Smart_K3IN1没有这个功能，最好应在要读是否有料前开启，实在不行在要读是否有料时开启也可以）；CN2.4=NC，CN2.5=5V输出，CN2.6=1k上拉5V，参数和Smart_K3IN1保持一样。
+
+系统输入	S1→PB10、S2→PB11、S4→PB2（各1k+10nF，ESD管，5V域）；STEP_M_ON/OFF→PA12/PA11（10Ω+10nF）
+S4 双向	PB2读取；PC13→Q9可把S4线拉低	可用于向主机回发应答
+LED	PB9（LED3红）、PB12（LED4绿）	均低电平点亮
+
+gd303_HALL_FOC代码用S1→PB10输出UART信号，应该加一个调试宏NO_S1_HAVE_UART放在MAIN.C。NO_S1_HAVE_UART=1时进入，S1信号同时使用S2信号，PB10专门输出UART
+
+Smart_K3IN1的PB12对应新板PB2=S4
+Smart_K3IN1的PB13对应新板PC13=高电平就把S4拉低
+
+
+5. 连接器
+连接器
+引脚定义
+U19（A2008WV-2×3P）电源+控制	1=GND，2=VIN(~100V)，3=S2，4=GND，5=S1，6=S4
+CN1（VH3.96-8P，7A）三相电机	1=W相，2=V相，3=U相，4=GND，5/6/7=HALL_W/V/U，8=+5V
+CON1（XH2.54-5P）步进电机	1=+12V，2=D，3=C，4=B，5=A
+U7（2.0mm-5P）拨料装置	1=+12V，2=PWM，3=+5V，4=GND，5=HALL
+CN2（1.25mm-6P）物料传感器	1=38kHz(开漏)，2=GND，3=WULIAO，4=NC，5=+5V，6=上拉5V
+CN4（1.25mm-4P）	1=+5V，2=GND，3=STEP_M_ON，4=STEP_M_OFF
+U21（2P）	5V 输出
+
+6. 固件硬约束清单（逐条执行）
+时钟：IRC8M→PLL→120MHz（标准库按外部晶振写的初始化必须改）
+释放 JTAG：AFIO 配置为仅 SWD，否则 PA15/PB3/PB4 不可用（这三个脚全是功能脚！）
+ADC：FOC的ADC按原样执行，另外用另外两个ADC用来测量播料有刷PWM电机电流和步进电机电流。
+测量播料有刷PWM电机电流和步进电机电流的ADC如果好做的话可以做零点校准，不好做就算了。
+LED 低有效；步进线圈高有效
+尽量不加奇怪的中断打扰FOC运行。测输入S1 S2 PWM或播料有刷PWM电机输入霍尔的应该用那种自动储存边沿到来的时间然后轮询获取的方式，因为都是很慢的信号。保证测量精度同时不产生多余中断干扰FOC。可参考Smart_K3IN1代码。
